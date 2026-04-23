@@ -68,8 +68,8 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
 
       // ... smoothedWrists ...
       let smoothedWrists = {
-        left: { x: 0, y: 0, active: false },
-        right: { x: 0, y: 0, active: false }
+        left: { x: 0, y: 0, active: false, seed: p.random(1000) },
+        right: { x: 0, y: 0, active: false, seed: p.random(1000) }
       };
 
       p.setup = () => {
@@ -170,11 +170,12 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
             
             if (!smoothed.active) {
               smoothed.x = target.x; smoothed.y = target.y; smoothed.active = true;
+              smoothed.seed = p.random(1000); // New seed for every new stroke integration
             } else {
               const prev = { x: smoothed.x, y: smoothed.y };
               smoothed.x = p.lerp(smoothed.x, target.x, sf);
               smoothed.y = p.lerp(smoothed.y, target.y, sf);
-              renderBrush({x: smoothed.x, y: smoothed.y}, prev, side);
+              renderBrush({x: smoothed.x, y: smoothed.y}, prev, side, smoothed.seed);
             }
           } else {
             smoothed.active = false;
@@ -185,7 +186,7 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
         updateWrist(rightWrist, smoothedWrists.right, 'right');
       };
 
-      const renderBrush = (pos: {x: number, y: number}, prev: {x: number, y: number}, side: string) => {
+      const renderBrush = (pos: {x: number, y: number}, prev: {x: number, y: number}, side: string, seed: number) => {
         const currentVisc = viscRef.current;
         const currentChalk = chalkRef.current;
         const currentShape = shapeRef.current;
@@ -196,7 +197,17 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
 
         const speedScale = p.constrain(dist, 0, 40);
         const weightBase = p.lerp(1, 15, currentVisc);
-        const alpha = p.map(p.constrain(dist, 2, 25), 2, 25, 230, 90);
+        
+        // Define alpha based on brush shape
+        let alpha: number;
+        if (currentShape === 'default') {
+          // Dynamic non-linear mapping for extreme "Pop" and contrast
+          const normSpeed = p.constrain(dist, 1, 30);
+          const factor = p.pow((normSpeed - 1) / 29, 1.2); 
+          alpha = p.lerp(35, 255, factor);
+        } else {
+          alpha = p.map(p.constrain(dist, 2, 25), 2, 25, 230, 90);
+        }
 
         pg.push();
         
@@ -207,17 +218,45 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
         const py = (dx / mag);
 
         if (currentShape === 'default') {
-          // --- FLAT BRUSH LOGIC ---
+          // --- FLAT BRUSH LOGIC (Parallel Bristles with Noise Jitter) ---
+          p.noiseSeed(seed); // Lock the noise to this specific stroke
+          
           const brushWidth = p.map(p.constrain(speedScale, 0, 35), 0, 35, weightBase * 0.5, weightBase * 4.5);
-          const bristleCount = p.floor(p.lerp(6, 16, currentVisc));
+          
+          // Randomize bristle count (2 - 10) based on seed
+          const bristleCount = p.floor(p.map(p.noise(seed), 0, 1, 2, 11));
+          
           for (let i = 0; i < bristleCount; i++) {
-            const t = (i / (bristleCount - 1 || 1)) - 0.5;
+            // Randomize spacing/offset based on seed
+            const noiseOffset = p.noise(seed + i * 5) - 0.5;
+            const t = (i / (bristleCount - 1 || 1)) - 0.5 + noiseOffset * 0.4;
             const offset = t * brushWidth;
-            const stagger = p.noise(i, p.frameCount * 0.1) * 3;
-            pg.strokeCap(p.SQUARE);
-            pg.strokeWeight(p.lerp(0.5, 2.5, p.noise(i, p.frameCount)));
-            pg.stroke(10, 10, 10, alpha * (0.6 + p.random(0.4)));
-            pg.line(prev.x + px * offset, prev.y + py * offset, pos.x + px * offset + stagger, pos.y + py * offset + stagger);
+            
+            pg.strokeCap(p.ROUND);
+            pg.strokeWeight(p.lerp(0.4, 2.8, p.noise(i, p.frameCount * 0.1)));
+            pg.stroke(10, 10, 10, alpha * (0.5 + p.random(0.5)));
+            
+            // Sub-divide the line segment into smaller jittered parts for "Noise" feel
+            const subSteps = 3;
+            pg.beginShape();
+            pg.noFill();
+            for (let s = 0; s <= subSteps; s++) {
+              const st = s / subSteps;
+              const lx = p.lerp(prev.x, pos.x, st);
+              const ly = p.lerp(prev.y, pos.y, st);
+              
+              // Organic displacement per sub-step - More wavy
+              const freq = p.map(p.noise(seed + 20), 0, 1, 0.02, 0.1);
+              const amp = p.map(p.noise(seed + 30), 0, 1, 2, 6);
+              const wavyNoise = (p.noise(i * 10, p.frameCount * freq + s * 0.3) - 0.5) * amp;
+              const drift = p.map(p.noise(i, s, p.frameCount * 0.01), 0, 1, -2, 2);
+              
+              pg.vertex(
+                lx + px * (offset + wavyNoise) + drift, 
+                ly + py * (offset + wavyNoise) + drift
+              );
+            }
+            pg.endShape();
           }
 
           if (speedScale > 10) {
