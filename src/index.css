@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@300;400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "EB Garamond", serif;
+  --font-mono: "IBM Plex Mono", monospace;
+  
+  --color-brand-orange: #A03D2A; /* Darkened Vermilion */
+  --color-paper-bg: #F2F0E9;
+  --color-ink: #000000; /* Absolute Black */
+  --color-ink-muted: rgba(0, 0, 0, 0.85); /* High contrast for AAA compliance */
+}
+
+body {
+  font-family: var(--font-serif);
+  background-color: var(--color-paper-bg);
+  color: var(--color-ink);
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Simulate watercolor paper texture */
+.paper-grain {
+  position: relative;
+}
+
+.paper-grain::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  opacity: 0.04;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  z-index: 50;
+}
+
+.paper-grain::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  opacity: 0.15;
+  pointer-events: none;
+  background: radial-gradient(circle at 30% 20%, white 0%, transparent 60%),
+              radial-gradient(circle at 80% 80%, rgba(255,255,255,0.4) 0%, transparent 50%);
+  z-index: 49;
+}
+
+.serif-display {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.typewriter-meta {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--color-ink-muted);
+}
+
+.glitch-text {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 500;
+}
+
+.ink-texture {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--color-ink-muted);
+  border-radius: 10px;
+}
+
+#loading, .ml5-loading-msg {
+  display: none !important;
+}
+
+canvas {
+  outline: none;
+}

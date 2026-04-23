@@ -1,0 +1,6 @@
+{
+  "name": "Monologue on Stone",
+  "description": "Generative ink art based on climbing movements. Tracks body trajectories via video and transforms climbing actions into abstract expressionist paintings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
