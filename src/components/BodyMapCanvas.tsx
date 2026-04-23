@@ -6,6 +6,7 @@ interface BodyMapCanvasProps {
   onClear: () => void;
   viscosity: number;
   chalkIntensity: number;
+  brushShape: 'default' | 'flower';
   commemorativeText: string;
 }
 
@@ -14,7 +15,7 @@ export interface BodyMapCanvasHandle {
   clearCanvas: () => void;
 }
 
-const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ videoSource, onClear, viscosity, chalkIntensity, commemorativeText }, ref) => {
+const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ videoSource, onClear, viscosity, chalkIntensity, brushShape, commemorativeText }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const p5InstanceRef = useRef<p5 | null>(null);
   
@@ -22,6 +23,7 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
   const textRef = useRef(commemorativeText);
   const viscRef = useRef(viscosity);
   const chalkRef = useRef(chalkIntensity);
+  const shapeRef = useRef(brushShape);
 
   useImperativeHandle(ref, () => ({
     downloadImage: (filename = 'body-as-map.png') => {
@@ -47,6 +49,10 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
   useEffect(() => {
     chalkRef.current = chalkIntensity;
   }, [chalkIntensity]);
+
+  useEffect(() => {
+    shapeRef.current = brushShape;
+  }, [brushShape]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -135,7 +141,7 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
           p.fill(26, 26, 26, 180);
           p.textFont('EB Garamond');
           p.textSize(12);
-          p.textStyle(p.ITALIC);
+          p.textStyle(p.NORMAL);
           p.textAlign(p.CENTER, p.BOTTOM);
           p.text(textRef.current, p.width / 2, p.height - 24);
           p.pop();
@@ -182,53 +188,130 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
       const renderBrush = (pos: {x: number, y: number}, prev: {x: number, y: number}, side: string) => {
         const currentVisc = viscRef.current;
         const currentChalk = chalkRef.current;
+        const currentShape = shapeRef.current;
         const dist = p.dist(pos.x, pos.y, prev.x, prev.y);
-        if (dist < 0.1) return;
+        
+        // Anti-jump: Skip frames with extreme tracking jitter
+        if (dist < 0.1 || dist > 60) return;
 
         const speedScale = p.constrain(dist, 0, 40);
-        const weightBase = p.lerp(1, 22, currentVisc);
-        const weight = p.map(speedScale, 0, 40, weightBase * 1.3, weightBase * 0.2);
-        const alpha = p.map(p.constrain(dist, 2, 20), 2, 20, 180, 60);
+        const weightBase = p.lerp(1, 15, currentVisc);
+        const alpha = p.map(p.constrain(dist, 2, 25), 2, 25, 230, 90);
 
         pg.push();
-        // Deep Charcoal ink - unified to avoid any potential blue tint
-        const inkColor = p.color(26, 26, 26);
         
-        const numBristles = p.floor(p.lerp(3, 8, currentVisc));
-        for (let i = 0; i < numBristles; i++) {
-          const offset = p.map(i, 0, numBristles - 1, -weight/2, weight/2);
-          const noiseVal = p.noise(p.frameCount * 0.1, i) * 3;
-          pg.stroke(p.red(inkColor), p.green(inkColor), p.blue(inkColor), alpha * 0.8);
-          pg.strokeWeight(p.lerp(0.8, 2.5, 1 - speedScale/40));
-          pg.line(prev.x + offset + noiseVal, prev.y, pos.x + offset + noiseVal, pos.y);
-        }
+        const dx = pos.x - prev.x;
+        const dy = pos.y - prev.y;
+        const mag = p.sqrt(dx * dx + dy * dy);
+        const px = (-dy / mag);
+        const py = (dx / mag);
 
-        if (dist < 4) {
-          pg.noStroke();
-          pg.fill(p.red(inkColor), p.green(inkColor), p.blue(inkColor), alpha * 0.4);
-          pg.rectMode(p.CENTER);
-          pg.rect(pos.x, pos.y, weight * 0.5, weight * 1.4);
-        }
+        if (currentShape === 'default') {
+          // --- FLAT BRUSH LOGIC ---
+          const brushWidth = p.map(p.constrain(speedScale, 0, 35), 0, 35, weightBase * 0.5, weightBase * 4.5);
+          const bristleCount = p.floor(p.lerp(6, 16, currentVisc));
+          for (let i = 0; i < bristleCount; i++) {
+            const t = (i / (bristleCount - 1 || 1)) - 0.5;
+            const offset = t * brushWidth;
+            const stagger = p.noise(i, p.frameCount * 0.1) * 3;
+            pg.strokeCap(p.SQUARE);
+            pg.strokeWeight(p.lerp(0.5, 2.5, p.noise(i, p.frameCount)));
+            pg.stroke(10, 10, 10, alpha * (0.6 + p.random(0.4)));
+            pg.line(prev.x + px * offset, prev.y + py * offset, pos.x + px * offset + stagger, pos.y + py * offset + stagger);
+          }
 
-        // Drip lines removed per request
-        
-        // --- 4. VERMILION ACCENTS (Traditional Red Splatter) ---
-        // Only splatter once some basic distance has been covered and enough frames have passed
-        if (dist > 12 * (1 - currentChalk) && p.frameCount > 120) {
-          const count = p.floor(p.random(1, 6) * currentChalk);
-          pg.noStroke();
-          for (let i = 0; i < count; i++) {
-            const rx = pos.x + p.random(-weight * 4, weight * 4);
-            const ry = pos.y + p.random(-weight * 4, weight * 4);
-            const rs = p.random(0.8, 1.2 + currentChalk * 5);
-            
-            // Muted Vermilion red
-            if (p.random() < 0.15 * currentChalk) {
-              pg.fill(192, 78, 53, alpha * 0.9);
-            } else {
-              pg.fill(26, 26, 26, alpha * 0.1);
+          if (speedScale > 10) {
+            const longBristleCount = 3;
+            for (let i = 0; i < longBristleCount; i++) {
+              const offset = (p.random() - 0.5) * brushWidth * 1.2;
+              pg.strokeWeight(0.5);
+              pg.stroke(10, 10, 10, alpha * 0.3);
+              pg.line(prev.x + px * offset, prev.y + py * offset, pos.x + px * offset * 1.5, pos.y + py * offset * 1.5);
             }
-            pg.circle(rx, ry, rs);
+          }
+
+          // --- 3. BREATHING WAVES (Random Wavy Lines) ---
+          // Creates rhythmic, noise-driven waves that follow the brush stroke for a "living" feel
+          const numWaves = p.floor(p.lerp(1, 3, currentVisc));
+          for (let i = 0; i < numWaves; i++) {
+            pg.noFill();
+            pg.stroke(10, 10, 10, alpha * 0.12);
+            pg.strokeWeight(0.35);
+            pg.beginShape();
+            const waveSteps = 4;
+            for (let j = 0; j <= waveSteps; j++) {
+              const lx = p.lerp(prev.x, pos.x, j / waveSteps);
+              const ly = p.lerp(prev.y, pos.y, j / waveSteps);
+              // Use p5 noise for smooth, breathing oscillations
+              const nVal = p.noise(p.frameCount * 0.04 + i * 10, j * 0.4);
+              const waveOff = (nVal - 0.5) * brushWidth * 2.2;
+              pg.curveVertex(lx + px * waveOff, ly + py * waveOff);
+            }
+            pg.endShape();
+          }
+
+          if (speedScale > 12) {
+            pg.noFill();
+            pg.stroke(10, 10, 10, alpha * 0.1);
+            pg.strokeWeight(0.3);
+            const midX = (prev.x + pos.x) / 2;
+            const midY = (prev.y + pos.y) / 2;
+            const orbitScale = p.map(speedScale, 12, 40, 1, 3);
+            pg.beginShape();
+            pg.vertex(prev.x, prev.y);
+            pg.quadraticVertex(midX + px * brushWidth * orbitScale, midY + py * brushWidth * orbitScale, pos.x, pos.y);
+            pg.endShape();
+          }
+
+          if (dist > 5) {
+            const steps = p.floor(dist / 4) + 1;
+            pg.noStroke();
+            pg.fill(10, 10, 10, alpha * 0.05);
+            for (let i = 0; i <= steps; i++) {
+               const lx = p.lerp(prev.x, pos.x, i / steps);
+               const ly = p.lerp(prev.y, pos.y, i / steps);
+               pg.ellipse(lx, ly, brushWidth * 0.8, brushWidth * 0.3);
+               if (p.random() < 0.04 * currentChalk) {
+                  pg.fill(192, 78, 53, alpha * 0.5);
+                  pg.circle(lx + p.random(-brushWidth/2, brushWidth/2), ly + p.random(-brushWidth/2, brushWidth/2), p.random(1, 2));
+                  pg.fill(10, 10, 10, alpha * 0.05);
+               }
+            }
+          }
+        } else if (currentShape === 'flower') {
+          // --- FLOWER BRUSH LOGIC ---
+          // Creates organic, petal-like clusters inspired by the movement
+          const petalCount = p.floor(p.lerp(3, 8, currentVisc));
+          const size = p.map(speedScale, 0, 40, weightBase * 2, weightBase * 6);
+          
+          pg.noStroke();
+          pg.fill(10, 10, 10, alpha * 0.2);
+          
+          for (let i = 0; i < petalCount; i++) {
+            const ang = p.map(i, 0, petalCount, 0, p.TWO_PI) + (p.frameCount * 0.02);
+            const rx = pos.x + p.cos(ang) * size * 0.3;
+            const ry = pos.y + p.sin(ang) * size * 0.3;
+            
+            pg.push();
+            pg.translate(rx, ry);
+            pg.rotate(ang + p.HALF_PI);
+            // Petal shape
+            pg.beginShape();
+            pg.vertex(0, 0);
+            pg.bezierVertex(-size/4, -size/2, -size/2, -size, 0, -size);
+            pg.bezierVertex(size/2, -size, size/4, -size/2, 0, 0);
+            pg.endShape();
+            pg.pop();
+          }
+          
+          // Central stamen effect
+          pg.stroke(10, 10, 10, alpha * 0.6);
+          pg.strokeWeight(0.5);
+          pg.line(prev.x, prev.y, pos.x, pos.y);
+          
+          if (p.random() < 0.1 * currentChalk) {
+            pg.fill(192, 78, 53, alpha * 0.7);
+            pg.circle(pos.x + p.random(-5, 5), pos.y + p.random(-5, 5), p.random(2, 5));
           }
         }
         pg.pop();

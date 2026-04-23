@@ -17,8 +17,11 @@ const translations = {
     subtitle: '"The wall is no longer stone, but a manuscript."',
     sourceIntegration: "Source Integration",
     mediumParameters: "Medium parameters",
-    viscosity: "Viscosity",
+    brushSize: "Brush Size",
     erasureResist: "Erasure_Resist",
+    brushShape: "Brush Shape",
+    default: "Default",
+    flower: "Flower",
     annotation: "Annotation",
     annotationPlaceholder: "Gym/Date/Grade",
     commit: "Share",
@@ -33,7 +36,7 @@ const translations = {
     steps: [
       { t: "Ingestion", d: "Upload a video of your kinetic performance (climbing, bouldering, movement)." },
       { t: "Synthesis", d: "Watch the system parse your trajectory, translating muscle memory into charcoal ink." },
-      { t: "Modulation", d: "Adjust Viscosity for fluid continuity and Erasure Resist for stroke permanence." },
+      { t: "Modulation", d: "Adjust Brush Size for fluid continuity and Erasure Resist for stroke permanence." },
       { t: "Inclusion", d: "Annotate your entry with personal metadata—dates, routes, or internal states." },
       { t: "Commitment", d: "Finalize the entry to download your kinetic cartography as a permanent archive." }
     ]
@@ -43,8 +46,11 @@ const translations = {
     subtitle: "“岩壁不再是冰冷的石块，而是一卷长轴。”",
     sourceIntegration: "素材整合",
     mediumParameters: "媒介参数",
-    viscosity: "粘稠度",
+    brushSize: "笔刷大小",
     erasureResist: "抹除阻尼",
+    brushShape: "笔触形状",
+    default: "默认",
+    flower: "花瓣",
     annotation: "标注",
     annotationPlaceholder: "Gym/Date/Grade",
     commit: "分享",
@@ -59,7 +65,7 @@ const translations = {
     steps: [
       { t: "摄入", d: "上传您的运能表演视频（攀岩、抱石或肢体律动）。" },
       { t: "合成", d: "观察系统如何解析您的轨迹，将肌肉记忆转化为炭黑墨迹。" },
-      { t: "调节", d: "调节“粘稠度”以获得流体连续性，调节“抹除阻尼”以获得笔触持久性。" },
+      { t: "调节", d: "调节“笔刷大小”以获得流体连续性，调节“抹除阻尼”以获得笔触持久性。" },
       { t: "收录", d: "用个人元数据（如日期、路线或内在状态）标注您的条目。" },
       { t: "承载", d: "完成条目以将您的动能制图下载为永久档案。" }
     ]
@@ -69,8 +75,9 @@ const translations = {
 export default function App() {
   const [language, setLanguage] = useState<Language>('en');
   const [videoSource, setVideoSource] = useState<string | null>(null);
-  const [viscosity, setViscosity] = useState(0.82);
-  const [chalkIntensity, setChalkIntensity] = useState(0.45);
+  const [viscosity, setViscosity] = useState(0.5);
+  const [chalkIntensity, setChalkIntensity] = useState(0.5);
+  const [brushShape, setBrushShape] = useState<'default' | 'flower'>('default');
   const [commemorativeText, setCommemorativeText] = useState("");
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const canvasRef = useRef<BodyMapCanvasHandle>(null);
@@ -105,7 +112,7 @@ export default function App() {
              <div className="space-y-8">
                 <div className="space-y-4">
                   <div className="flex justify-between items-end">
-                    <span className="typewriter-meta">{t.viscosity}</span>
+                    <span className="typewriter-meta">{t.brushSize}</span>
                     <span className="typewriter-meta text-[#A03D2A] font-bold">{viscosity.toFixed(2)}</span>
                   </div>
                   <input 
@@ -132,6 +139,18 @@ export default function App() {
                     onChange={(e) => setChalkIntensity(parseFloat(e.target.value))}
                     className="w-full h-[1px] bg-[#000]/20 appearance-none cursor-pointer accent-black"
                   />
+                </div>
+
+                <div className="space-y-4 pt-2">
+                  <label className="typewriter-meta opacity-80 block font-medium mb-1">{t.brushShape}</label>
+                  <select 
+                    value={brushShape}
+                    onChange={(e) => setBrushShape(e.target.value as 'default' | 'flower')}
+                    className="w-full bg-transparent border-b border-[#000]/20 py-2 text-[12px] font-serif focus:outline-none focus:border-[#A03D2A] cursor-pointer appearance-none"
+                  >
+                    <option value="default">{t.default}</option>
+                    <option value="flower">{t.flower}</option>
+                  </select>
                 </div>
              </div>
           </div>
@@ -227,6 +246,7 @@ export default function App() {
               onClear={() => setVideoSource(null)}
               viscosity={viscosity}
               chalkIntensity={chalkIntensity}
+              brushShape={brushShape}
               commemorativeText={commemorativeText}
             />
           </motion.div>
