@@ -13,7 +13,7 @@ type Language = 'en' | 'zh';
 
 const translations = {
   en: {
-    title: "Monologue on Stone",
+    title: "Monologue on stone",
     subtitle: '"The wall is no longer stone, but a manuscript."',
     sourceIntegration: "Source Integration",
     mediumParameters: "Medium parameters",
