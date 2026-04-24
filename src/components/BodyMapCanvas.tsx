@@ -25,10 +25,30 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
   const chalkRef = useRef(chalkIntensity);
   const shapeRef = useRef(brushShape);
 
-  useImperativeHandle(ref, () => ({
+      useImperativeHandle(ref, () => ({
     downloadImage: (filename = 'body-as-map.png') => {
       if (p5InstanceRef.current) {
-        p5InstanceRef.current.saveCanvas(filename);
+        const p = p5InstanceRef.current;
+        // @ts-ignore
+        const currentPg = p.getPg(); 
+        
+        // Create an export composition at 1080p
+        const exp = p.createGraphics(1080, 1920);
+        exp.background(242, 240, 233);
+        
+        // Draw the Ink layer
+        exp.image(currentPg, 0, 0);
+        
+        // Redraw Text at high-res for the download
+        if (textRef.current) {
+          exp.fill(26, 26, 26, 200);
+          exp.textFont('EB Garamond');
+          exp.textSize(32); // Scaled text size for 1080p
+          exp.textAlign(p.CENTER, p.BOTTOM);
+          exp.text(textRef.current, 1080 / 2, 1920 - 64);
+        }
+        
+        exp.save(filename);
       }
     },
     clearCanvas: () => {
@@ -58,29 +78,34 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
     if (!containerRef.current) return;
 
     const sketch = (p: p5) => {
-      // ... existing variables ...
+      const OUT_W = 1080;
+      const OUT_H = 1920;
+      let R_SCALE = 1;
+
       let video: p5.Element;
       let poseNet: any;
       let poses: any[] = [];
       let canvas: p5.Renderer;
-      let pg: p5.Graphics; // Offscreen graphics for the drawing
+      let pg: p5.Graphics; 
       let paperTexture: p5.Image;
 
-      // ... smoothedWrists ...
       let smoothedWrists = {
-        left: { x: 0, y: 0, active: false, seed: p.random(1000) },
-        right: { x: 0, y: 0, active: false, seed: p.random(1000) }
+        left: { x: 0, y: 0, active: false, seed: p.random(1000), points: 0 },
+        right: { x: 0, y: 0, active: false, seed: p.random(1000), points: 0 }
       };
 
-      p.setup = () => {
-        const containerHeight = containerRef.current?.clientHeight || 800;
-        const containerWidth = (containerHeight * 9) / 16;
-        canvas = p.createCanvas(containerWidth, containerHeight);
-        p.noStroke();
-        
-        pg = p.createGraphics(p.width, p.height);
-        pg.clear(0, 0, 0, 0);
-      };
+        p.setup = () => {
+          const containerHeight = containerRef.current?.clientHeight || 800;
+          const containerWidth = (containerHeight * 9) / 16;
+          canvas = p.createCanvas(containerWidth, containerHeight);
+          p.noStroke();
+          p.pixelDensity(p.displayDensity() > 1 ? 2 : 1); // Ensure sharp text and curves on screen
+          
+          R_SCALE = OUT_W / p.width;
+          
+          pg = p.createGraphics(OUT_W, OUT_H);
+          pg.clear(0, 0, 0, 0);
+        };
 
       p.draw = () => {
         p.clear(0, 0, 0, 0);
@@ -108,7 +133,7 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
         p.rect(0, 0, p.width, p.height);
 
         // 3. Draw Brush Strokes (Inky Graphic layer)
-        p.image(pg, 0, 0);
+        p.image(pg, 0, 0, p.width, p.height);
 
         // 4. Pose Processing
         if (videoSource) {
@@ -158,8 +183,8 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
           const vw = (video as any).width || 1;
           const vh = (video as any).height || 1;
           return {
-            x: p.map(pt.x, 0, vw, 0, p.width),
-            y: p.map(pt.y, 0, vh, 0, p.height)
+            x: p.map(pt.x, 0, vw, 0, OUT_W),
+            y: p.map(pt.y, 0, vh, 0, OUT_H)
           };
         };
 
@@ -171,11 +196,13 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
             if (!smoothed.active) {
               smoothed.x = target.x; smoothed.y = target.y; smoothed.active = true;
               smoothed.seed = p.random(1000); // New seed for every new stroke integration
+              smoothed.points = 0;
             } else {
               const prev = { x: smoothed.x, y: smoothed.y };
               smoothed.x = p.lerp(smoothed.x, target.x, sf);
               smoothed.y = p.lerp(smoothed.y, target.y, sf);
-              renderBrush({x: smoothed.x, y: smoothed.y}, prev, side, smoothed.seed);
+              smoothed.points++;
+              renderBrush({x: smoothed.x, y: smoothed.y}, prev, side, smoothed.seed, smoothed.points);
             }
           } else {
             smoothed.active = false;
@@ -186,25 +213,33 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
         updateWrist(rightWrist, smoothedWrists.right, 'right');
       };
 
-      const renderBrush = (pos: {x: number, y: number}, prev: {x: number, y: number}, side: string, seed: number) => {
+      const renderBrush = (pos: {x: number, y: number}, prev: {x: number, y: number}, side: string, seed: number, strokeIndex: number) => {
         const currentVisc = viscRef.current;
         const currentChalk = chalkRef.current;
         const currentShape = shapeRef.current;
         const dist = p.dist(pos.x, pos.y, prev.x, prev.y);
         
         // Anti-jump: Skip frames with extreme tracking jitter
-        if (dist < 0.1 || dist > 60) return;
+        if (dist < 0.1 * R_SCALE || dist > 150 * R_SCALE) return;
 
-        const speedScale = p.constrain(dist, 0, 40);
-        const weightBase = p.lerp(1, 15, currentVisc);
+        const speedScale = p.constrain(dist / R_SCALE, 0, 40);
+        const weightBase = p.lerp(2, 18, currentVisc) * R_SCALE;
         
         // Define alpha based on brush shape
         let alpha: number;
         if (currentShape === 'default') {
           // Dynamic non-linear mapping for extreme "Pop" and contrast
           const normSpeed = p.constrain(dist, 1, 30);
-          const factor = p.pow((normSpeed - 1) / 29, 1.2); 
-          alpha = p.lerp(35, 255, factor);
+          const factor = p.pow((normSpeed - 1) / 29, 1.5); 
+          // Set floor to ~40% opacity (100) and scale to full (255)
+          // Also allow it to be even lower if dist is very small
+          alpha = p.lerp(80, 255, factor);
+          
+          // --- STROKE LIFECYCLE (Heavy ends) ---
+          // Use a bell-curve or decay for "Ink flow" - heavy at start of new placement
+          const startHeavy = p.map(p.constrain(strokeIndex, 0, 10), 0, 10, 1.5, 1.0);
+          const inkFlow = p.constrain(startHeavy, 1.0, 1.5);
+          alpha *= inkFlow;
         } else {
           alpha = p.map(p.constrain(dist, 2, 25), 2, 25, 230, 90);
         }
@@ -218,26 +253,74 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
         const py = (dx / mag);
 
         if (currentShape === 'default') {
-          // --- FLAT BRUSH LOGIC (Parallel Bristles with Noise Jitter) ---
-          p.noiseSeed(seed); // Lock the noise to this specific stroke
+          // --- MASTER INK-WASH BRUSH (Living & Breathing) ---
+          p.noiseSeed(seed);
           
-          const brushWidth = p.map(p.constrain(speedScale, 0, 35), 0, 35, weightBase * 0.5, weightBase * 4.5);
+          const maxBrushWidth = weightBase * 8.0;
+          const brushWidth = p.map(p.constrain(speedScale, 0, 35), 0, 35, weightBase * 1.5, maxBrushWidth);
           
-          // Randomize bristle count (2 - 10) based on seed
-          const bristleCount = p.floor(p.map(p.noise(seed), 0, 1, 2, 11));
+          // --- HEAD & TAIL PROFILE ---
+          // Make the start of the entire stroke thinner, and thicken it as it progresses
+          const startProfile = p.map(p.constrain(strokeIndex, 0, 25), 0, 25, 0.5, 1.2);
+          const endProfile = p.map(p.constrain(strokeIndex + 0.5, 0, 25), 0, 25, 0.5, 1.2);
+          
+          // DYNAMIC BRISTLE COUNT: Increased by ~20% for a fuller core
+          const bristleCount = p.floor(p.map(p.constrain(speedScale, 1, 35), 1, 35, 15, 60));
           
           for (let i = 0; i < bristleCount; i++) {
-            // Randomize spacing/offset based on seed
-            const noiseOffset = p.noise(seed + i * 5) - 0.5;
-            const t = (i / (bristleCount - 1 || 1)) - 0.5 + noiseOffset * 0.4;
-            const offset = t * brushWidth;
+            // Gaussian-like distribution (center-weighted)
+            let t = (i / (bristleCount - 1)) - 0.5;
+            // Bias t towards the center to create a "dense core"
+            t = p.pow(p.abs(t * 2), 1.2) * 0.5 * (t < 0 ? -1 : 1);
             
+            const jitter = (p.noise(seed, i * 0.8, strokeIndex * 0.2) - 0.5) * 0.2;
+            const distFromCenter = p.abs(t * 2); 
+            
+            // --- 1. DYNAMIC EROSION (Fei-bai / Dry Brush) ---
+            const erosionNoise = p.noise(i * 0.6, strokeIndex * 0.12, p.frameCount * 0.05);
+            // Edge-focused erosion: Core (center) is much more resistant to breaking
+            const edgeErosion = p.map(distFromCenter, 0.3, 1.0, 0, 0.7);
+            const speedErosion = p.map(speedScale, 2, 35, 0.3, 0.9); // Lowered max erosion
+            
+            if (erosionNoise < (speedErosion + edgeErosion)) {
+              // Instead of just skipping, add grainy "dry ink" texture
+              if (p.random() < 0.35 && speedScale > 5) {
+                pg.noStroke();
+                pg.fill(10, 10, 10, alpha * 0.18);
+                // Randomized position for grain
+                const grainOff = (t + jitter) * brushWidth * p.lerp(startProfile, endProfile, p.random());
+                const rGrain = p.random(0.5, 1.5) * R_SCALE;
+                pg.circle(pos.x + px * grainOff + p.random(-2, 2) * R_SCALE, pos.y + py * grainOff + p.random(-2, 2) * R_SCALE, rGrain);
+              }
+              // Lowered skip probability to avoid being too "dead/empty"
+              if (p.random() < 0.85) continue; 
+            }
+
+            // --- 2. MULTI-LAYER TEXTURE (Ink Wash) ---
+            let localAlpha = alpha;
+            let bWeight = 0;
+            
+            // Internal texture noise (Paper grain simulation)
+            const grainNoise = p.noise(i * 0.8, strokeIndex * 0.3, p.frameCount * 0.1);
+            localAlpha *= p.map(grainNoise, 0, 1, 0.5, 1.0);
+
+            if (distFromCenter < 0.3) {
+              // The Dark Core - slightly less dark when slow
+              localAlpha *= p.map(p.noise(i, strokeIndex * 0.1), 0, 1, 0.7, 1.3);
+              bWeight = p.lerp(1.2, 3.8, p.noise(i * 2, seed));
+            } else {
+              // The Bleeding Fringe
+              const fade = 1.0 - distFromCenter;
+              localAlpha *= p.map(p.noise(i, strokeIndex * 0.05), 0, 1, 0.15, 0.7) * (0.2 + 0.8 * fade);
+              bWeight = p.lerp(0.15, 1.2, p.noise(i, seed * 2));
+            }
+
+            pg.stroke(10, 10, 10, p.constrain(localAlpha, 0, 255));
+            pg.strokeWeight(bWeight);
             pg.strokeCap(p.ROUND);
-            pg.strokeWeight(p.lerp(0.4, 2.8, p.noise(i, p.frameCount * 0.1)));
-            pg.stroke(10, 10, 10, alpha * (0.5 + p.random(0.5)));
             
-            // Sub-divide the line segment into smaller jittered parts for "Noise" feel
-            const subSteps = 3;
+            // --- 3. DIRECTIONAL HAIR & JITTER ---
+            const subSteps = 2; 
             pg.beginShape();
             pg.noFill();
             for (let s = 0; s <= subSteps; s++) {
@@ -245,78 +328,57 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
               const lx = p.lerp(prev.x, pos.x, st);
               const ly = p.lerp(prev.y, pos.y, st);
               
-              // Organic displacement per sub-step - More wavy
-              const freq = p.map(p.noise(seed + 20), 0, 1, 0.02, 0.1);
-              const amp = p.map(p.noise(seed + 30), 0, 1, 2, 6);
-              const wavyNoise = (p.noise(i * 10, p.frameCount * freq + s * 0.3) - 0.5) * amp;
-              const drift = p.map(p.noise(i, s, p.frameCount * 0.01), 0, 1, -2, 2);
+              // Tapering width within the segment
+              const currentScale = p.lerp(startProfile, endProfile, st);
+              const offset = (t + jitter) * brushWidth * currentScale;
+
+              const freq = p.map(distFromCenter, 0, 1, 0.05, 0.2); 
+              const amp = p.map(distFromCenter, 0, 1, 1.5, 6) * R_SCALE;
+              const wavyNoise = (p.noise(i * 12, strokeIndex * 0.2 + s * 0.8) - 0.5) * amp;
+              
+              // Longitudinal jitter (feathering) along the direction of travel
+              const longBase = p.noise(i, seed) - 0.5;
+              const longJitter = longBase * (speedScale * 0.5 + 5) * R_SCALE * (s === 0 ? -1 : 1);
               
               pg.vertex(
-                lx + px * (offset + wavyNoise) + drift, 
-                ly + py * (offset + wavyNoise) + drift
+                lx + px * (offset + wavyNoise) + (dx/mag) * longJitter, 
+                ly + py * (offset + wavyNoise) + (dy/mag) * longJitter
               );
             }
             pg.endShape();
           }
 
-          if (speedScale > 10) {
-            const longBristleCount = 3;
-            for (let i = 0; i < longBristleCount; i++) {
-              const offset = (p.random() - 0.5) * brushWidth * 1.2;
-              pg.strokeWeight(0.5);
-              pg.stroke(10, 10, 10, alpha * 0.3);
-              pg.line(prev.x + px * offset, prev.y + py * offset, pos.x + px * offset * 1.5, pos.y + py * offset * 1.5);
-            }
-          }
-
-          // --- 3. BREATHING WAVES (Random Wavy Lines) ---
-          // Creates rhythmic, noise-driven waves that follow the brush stroke for a "living" feel
-          const numWaves = p.floor(p.lerp(1, 3, currentVisc));
-          for (let i = 0; i < numWaves; i++) {
-            pg.noFill();
+          // --- 4. ACCIDENTAL SPLINTERS (Stray Hairs) ---
+          if (p.random() < 0.12) {
+            const strayOff = (p.random(-0.5, 0.5) * brushWidth * 1.8);
+            pg.strokeWeight(0.2 * R_SCALE);
             pg.stroke(10, 10, 10, alpha * 0.12);
-            pg.strokeWeight(0.35);
-            pg.beginShape();
-            const waveSteps = 4;
-            for (let j = 0; j <= waveSteps; j++) {
-              const lx = p.lerp(prev.x, pos.x, j / waveSteps);
-              const ly = p.lerp(prev.y, pos.y, j / waveSteps);
-              // Use p5 noise for smooth, breathing oscillations
-              const nVal = p.noise(p.frameCount * 0.04 + i * 10, j * 0.4);
-              const waveOff = (nVal - 0.5) * brushWidth * 2.2;
-              pg.curveVertex(lx + px * waveOff, ly + py * waveOff);
-            }
-            pg.endShape();
+            pg.line(prev.x, prev.y, pos.x + px * strayOff, pos.y + py * strayOff);
           }
 
+          // --- 5. MICRO-SPLATTERS (INK SPRAY / FEIBAI) ---
           if (speedScale > 12) {
-            pg.noFill();
-            pg.stroke(10, 10, 10, alpha * 0.1);
-            pg.strokeWeight(0.3);
-            const midX = (prev.x + pos.x) / 2;
-            const midY = (prev.y + pos.y) / 2;
-            const orbitScale = p.map(speedScale, 12, 40, 1, 3);
-            pg.beginShape();
-            pg.vertex(prev.x, prev.y);
-            pg.quadraticVertex(midX + px * brushWidth * orbitScale, midY + py * brushWidth * orbitScale, pos.x, pos.y);
-            pg.endShape();
-          }
-
-          if (dist > 5) {
-            const steps = p.floor(dist / 4) + 1;
-            pg.noStroke();
-            pg.fill(10, 10, 10, alpha * 0.05);
-            for (let i = 0; i <= steps; i++) {
-               const lx = p.lerp(prev.x, pos.x, i / steps);
-               const ly = p.lerp(prev.y, pos.y, i / steps);
-               pg.ellipse(lx, ly, brushWidth * 0.8, brushWidth * 0.3);
-               if (p.random() < 0.04 * currentChalk) {
-                  pg.fill(192, 78, 53, alpha * 0.5);
-                  pg.circle(lx + p.random(-brushWidth/2, brushWidth/2), ly + p.random(-brushWidth/2, brushWidth/2), p.random(1, 2));
-                  pg.fill(10, 10, 10, alpha * 0.05);
-               }
+            const splatterChance = p.map(speedScale, 12, 45, 0.3, 0.98);
+            if (p.random() < splatterChance) {
+              const count = p.floor(p.map(speedScale, 12, 45, 6, 25));
+              pg.noStroke();
+              pg.fill(10, 10, 10, alpha * 0.6);
+              for (let k = 0; k < count; k++) {
+                const sDist = p.random(2, brushWidth * 2.8);
+                const sAngle = p.random(p.TWO_PI);
+                const sSize = p.random(0.2, 4.5) * R_SCALE;
+                pg.circle(pos.x + p.cos(sAngle) * sDist, pos.y + p.sin(sAngle) * sDist, sSize);
+              }
             }
           }
+
+          // --- 6. BREATHING UNDERTONE ---
+          const nVal = p.noise(p.frameCount * 0.04, seed);
+          const waveOff = (nVal - 0.5) * brushWidth * 2.0;
+          pg.noFill();
+          pg.stroke(10, 10, 10, alpha * 0.06);
+          pg.strokeWeight(0.5 * R_SCALE);
+          pg.line(prev.x + px * waveOff, prev.y + py * waveOff, pos.x + px * waveOff, pos.y + py * waveOff);
         } else if (currentShape === 'flower') {
           // --- FLOWER BRUSH LOGIC ---
           // Creates organic, petal-like clusters inspired by the movement
@@ -345,17 +407,22 @@ const BodyMapCanvas = forwardRef<BodyMapCanvasHandle, BodyMapCanvasProps>(({ vid
           
           // Central stamen effect
           pg.stroke(10, 10, 10, alpha * 0.6);
-          pg.strokeWeight(0.5);
+          pg.strokeWeight(0.5 * R_SCALE);
           pg.line(prev.x, prev.y, pos.x, pos.y);
           
           if (p.random() < 0.1 * currentChalk) {
             pg.fill(192, 78, 53, alpha * 0.7);
-            pg.circle(pos.x + p.random(-5, 5), pos.y + p.random(-5, 5), p.random(2, 5));
+            const rStamen = p.random(2, 5) * R_SCALE;
+            pg.circle(pos.x + p.random(-5, 5) * R_SCALE, pos.y + p.random(-5, 5) * R_SCALE, rStamen);
           }
         }
         pg.pop();
       };
       
+      (p as any).getPg = () => {
+        return pg;
+      };
+
       (p as any).clearCanvas = () => {
         pg.clear(0, 0, 0, 0);
       };
