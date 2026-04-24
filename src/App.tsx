@@ -83,6 +83,7 @@ export default function App() {
   const canvasRef = useRef<BodyMapCanvasHandle>(null);
 
   const t = translations[language];
+  const DRIVE_LINK = "https://drive.google.com/drive/folders/1U3wf60nY8Wqj9qK0i-onaFGK179g76DX?usp=sharing";
 
   const handleExport = () => {
     if (canvasRef.current) {
@@ -168,12 +169,14 @@ export default function App() {
             </div>
             
             <div className="flex gap-3">
-              <button 
-                onClick={handleExport}
-                className="flex-1 border border-[#000] text-[#000] py-4 typewriter-meta !text-[9px] tracking-[0.1em] hover:bg-[#A03D2A] hover:border-[#A03D2A] hover:!text-[#F2F0E9] transition-all duration-500"
+              <a 
+                href={DRIVE_LINK}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 border border-[#000] text-[#000] py-4 typewriter-meta !text-[9px] tracking-[0.1em] hover:bg-[#A03D2A] hover:border-[#A03D2A] hover:!text-[#F2F0E9] transition-all duration-500 text-center"
               >
                 {t.commit}
-              </button>
+              </a>
               <button 
                 onClick={handleExport}
                 className="flex-1 bg-[#000] !text-[#F2F0E9] py-4 typewriter-meta !text-[9px] tracking-[0.1em] hover:bg-[#A03D2A] transition-all duration-500"
@@ -205,13 +208,16 @@ export default function App() {
       <main className="flex-1 flex flex-col items-center justify-center p-12 relative overflow-hidden">
         {/* Top-right Controls */}
         <div className="absolute top-10 right-10 z-50 flex items-center gap-6">
-          <button 
+          <a 
+            href={DRIVE_LINK}
+            target="_blank"
+            rel="noopener noreferrer"
             className="group border-b border-transparent hover:border-[#000]/10 transition-colors py-1"
           >
             <span className="typewriter-meta !text-[10px] text-[#000] opacity-80 group-hover:opacity-100 tracking-[0.2em] font-bold">
               {t.gallery}
             </span>
-          </button>
+          </a>
 
           <button 
             onClick={() => setLanguage(lang => lang === 'en' ? 'zh' : 'en')}
